@@ -13,16 +13,30 @@
       font-family: Arial, sans-serif;
       margin: 20px;
     }
-    #board-container {
-      display: inline-block;
-      vertical-align: top;
-      margin-right: 20px;
+
+    /* A wrapping flex container with a fixed max width so board and controls
+       don't become too far apart on wide screens. */
+    #game-layout {
+      display: flex;
+      flex-wrap: wrap;       /* allow wrapping when screen is narrow */
+      gap: 20px;             /* space between board + controls */
+      max-width: 950px;      /* keep them together on very wide screens */
+      margin: 0 auto;        /* center within the browser window */
+      align-items: flex-start;  /* align them at the top */
     }
+
+    /* Board container: no flex growth beyond its natural 500px,
+       so it stays near the controls on wide screens. */
+    #board-container {
+      flex: 0 0 auto;
+    }
+
+    /* Controls: also do not stretch; cap width at 400px if you like */
     #controls {
-      display: inline-block;
-      vertical-align: top;
+      flex: 0 0 auto;
       max-width: 400px;
     }
+
     .row {
       margin-bottom: 8px;
     }
@@ -30,26 +44,33 @@
       display: inline-block;
       width: 90px;
     }
+
     #score-section {
       margin-top: 15px;
       padding: 10px;
       border: 1px solid #ccc;
     }
+
+    /* Fixed table layout so columns don't resize from "0" ↔ "360" */
     #score-section table {
       border-collapse: collapse;
       width: 100%;
       max-width: 300px;
+      table-layout: fixed;  /* prevents column width shifts */
     }
+
     #score-section th,
     #score-section td {
       border: 1px solid #999;
       padding: 6px 10px;
       text-align: center;
     }
+
     #status-message {
       margin-top: 10px;
       font-style: italic;
     }
+
     #explanation {
       margin-top: 20px;
       padding: 10px;
@@ -62,109 +83,116 @@
 
 <h1>Simple Go Game</h1>
 
-<div id="board-container">
-  <div id="go-board" style="width:500px; height:500px;"></div>
-</div>
-
-<div id="controls">
-  <!-- Board size -->
-  <div class="row">
-    <label for="boardSize">Board Size:</label>
-    <select id="boardSize">
-      <option value="19">19 x 19</option>
-      <option value="13">13 x 13</option>
-      <option value="10">10 x 10</option>
-      <option value="9">9 x 9</option>
-      <option value="6">6 x 6</option>
-      <option value="5">5 x 5</option>
-      <option value="4">4 x 4</option>
-      <option value="3">3 x 3</option>
-      <option value="2">2 x 2</option>
-      <option value="1">1 x 1</option>
-    </select>
+<div id="game-layout">
+  <div id="board-container">
+    <div id="go-board" style="width:500px; height:500px;"></div>
   </div>
 
-  <!-- Komi (0 by default) -->
-  <div class="row">
-    <label for="komiInput">Komi:</label>
-    <input type="number" id="komiInput" value="0" step="0.5" />
-  </div>
+  <div id="controls">
+    <!-- Board size -->
+    <div class="row">
+      <label for="boardSize">Board Size:</label>
+      <select id="boardSize">
+        <option value="19">19 x 19</option>
+        <option value="13">13 x 13</option>
+        <option value="10">10 x 10</option>
+        <option value="9">9 x 9</option>
+        <option value="6">6 x 6</option>
+        <option value="5">5 x 5</option>
+        <option value="4">4 x 4</option>
+        <option value="3">3 x 3</option>
+        <option value="2">2 x 2</option>
+      </select>
+    </div>
 
-  <!-- Game Mode -->
-  <div class="row">
-    <label>Game Mode:</label>
-    <select id="gameMode">
-      <option value="human-vs-computer">Human vs Computer</option>
-      <option value="human-vs-human">Human vs Human</option>
-    </select>
-  </div>
+    <!-- Komi (0 by default) -->
+    <div class="row">
+      <label for="komiInput">Komi:</label>
+      <input type="number" id="komiInput" value="0" step="0.5" />
+    </div>
 
-  <!-- Which color for the human (only if HvC) -->
-  <div class="row" id="colorSelectRow">
-    <label>Play As:</label>
-    <select id="playerColor">
-      <option value="1">Black</option>
-      <option value="-1">White</option>
-    </select>
-  </div>
+    <!-- Game Mode -->
+    <div class="row">
+      <label>Game Mode:</label>
+      <select id="gameMode">
+        <option value="human-vs-computer">Human vs Computer</option>
+        <option value="human-vs-human">Human vs Human</option>
+      </select>
+    </div>
 
-  <!-- Buttons -->
-  <div class="row">
-    <button id="startBtn">Start New Game</button>
-    <button id="undoBtn" disabled>Undo</button>
-  </div>
+    <!-- Which color for the human (only if HvC) -->
+    <div class="row" id="colorSelectRow">
+      <label>Play As:</label>
+      <select id="playerColor">
+        <option value="1">Black</option>
+        <option value="-1">White</option>
+      </select>
+    </div>
 
-  <!-- Score table -->
-  <div id="score-section">
-    <h3>Board Statistics</h3>
-    <table>
-      <tr>
-        <th></th>
-        <th>Black</th>
-        <th>White</th>
-      </tr>
-      <tr>
-        <td>Stones on Board</td>
-        <td id="blackStonesCell">0</td>
-        <td id="whiteStonesCell">0</td>
-      </tr>
-      <tr>
-        <td>Captures</td>
-        <td id="blackCapturesCell">0</td>
-        <td id="whiteCapturesCell">0</td>
-      </tr>
-      <tr>
-        <td>Territory (Naive)</td>
-        <td id="blackTerrCell">0</td>
-        <td id="whiteTerrCell">0</td>
-      </tr>
-      <tr>
-        <td>Total Points</td>
-        <td id="blackScoreCell">0</td>
-        <td id="whiteScoreCell">0</td>
-      </tr>
-      <!-- ADDED/CHANGED: Moved "Total Moves" row to the bottom -->
-      <tr>
-        <td>Total Moves</td>
-        <td colspan="2" id="totalMovesCell">0</td>
-      </tr>
-    </table>
-  </div>
+    <!-- Buttons -->
+    <div class="row">
+      <button id="startBtn">Start New Game</button>
+      <button id="undoBtn" disabled>Undo</button>
+    </div>
 
-  <div id="status-message">—</div>
+    <!-- Score table -->
+    <div id="score-section">
+      <h3>Board Statistics</h3>
+      <table>
+        <tr>
+          <th></th>
+          <th>Black</th>
+          <th>White</th>
+        </tr>
+        <tr>
+          <td>Stones on Board</td>
+          <td id="blackStonesCell">0</td>
+          <td id="whiteStonesCell">0</td>
+        </tr>
+        <tr>
+          <td>Captures</td>
+          <td id="blackCapturesCell">0</td>
+          <td id="whiteCapturesCell">0</td>
+        </tr>
+        <tr>
+          <td>Territory (Naive)</td>
+          <td id="blackTerrCell">0</td>
+          <td id="whiteTerrCell">0</td>
+        </tr>
+        <tr>
+          <td>Total Points</td>
+          <td id="blackScoreCell">0</td>
+          <td id="whiteScoreCell">0</td>
+        </tr>
+        <!-- "Total Moves" row -->
+        <tr>
+          <td>Total Moves</td>
+          <td colspan="2" id="totalMovesCell">0</td>
+        </tr>
+      </table>
+    </div>
+
+    <div id="status-message">—</div>
+  </div>
 </div>
 
 <div id="explanation">
-  <h3>How Are Points Computed?</h3>
+  <h3>How Are Points Computed? (Simple Chinese-Style)</h3>
   <p>
-    <strong>Stones on Board:</strong> Each player gets one point for each of their stones remaining on the board.<br>
-    <strong>Territory:</strong> We count empty intersections that only touch one color as that color’s territory. If an empty area touches both colors, it belongs to no one.<br>
-    <strong>Captures:</strong> When stones are surrounded and removed (no liberties), the capturing player’s total increases because the opponent effectively loses those stones from the board.<br>
-    <strong>Komi:</strong> By tradition, White usually receives extra points to make up for Black playing first. Typical komi in Chinese rules is around <strong>7.5 points</strong>. However, we set this to <strong>0 by default</strong> for simplicity.<br>
+    <strong>Stones on Board:</strong> Each player gets one point for each of their stones remaining on the board.
     <br>
-    <strong>Total Points:</strong><br>
-    We use a simplified Chinese-style approach: <em>Points = Territory + Stones on Board + Komi (for White only) </em>.<br><br>
-    <em>Note:</em> No advanced rules like Ko ban or seki detection are implemented here. The <strong>Undo</strong> button only removes the last stone placed (it does not restore captured stones).
+    <strong>Territory:</strong> We count empty intersections that only touch one color as that color’s territory. If an empty area touches both colors, it belongs to no one.
+    <br>
+    <strong>Captures:</strong> When stones are surrounded and removed, the capturing player’s total effectively increases (as the opponent loses those stones on the board).
+    <br>
+    <strong>Komi:</strong> In formal Chinese Go, White often receives around 7.5 points to compensate for Black moving first. However, here the default is <strong>0</strong> (you can change it above).
+    <br><br>
+    <strong>Overall Score:</strong> For each color,
+    <em>score = stones on board + territory + (komi for White only)</em>.
+    <br><br>
+    <em>Note:</em> No advanced rules like Ko or seki detection are implemented here. The <strong>Undo</strong> button removes only the last stone placed (it does not restore captured stones).
+    <br><br>
+    Author: Stark Liu. <a href="https://github.com/lzddzh/SimpleGoGame">Source Code on Github</a> . 
   </p>
 </div>
 
@@ -188,7 +216,7 @@
   // Track total moves
   let totalMoves = 0;
 
-  // ADDED/CHANGED: Keep a marker for the last move so we can remove it before drawing a new one
+  // Keep a marker for the last move so we can remove it before drawing a new one
   let lastMoveMarker = null;
 
   /************************************************************
@@ -204,13 +232,13 @@
     const boardContainer = document.getElementById("go-board");
     boardContainer.innerHTML = "";
 
-    // ADDED/CHANGED: Create a new WGo board with coordinates visible
+    // Create a new WGo board with coordinates visible
     board = new WGo.Board(boardContainer, {
       width: 500,
       height: 500,
       size: boardSize,
       coordinates: {
-        visible: true   // Show A,B,C... / 1,2,3... around edges
+        visible: true
       }
     });
 
@@ -232,7 +260,6 @@
           totalMoves++;
           moveStack.push({ x: move.x, y: move.y, color: currentPlayer });
 
-          // Mark the last move
           highlightLastMove(move.x, move.y);
 
           switchPlayer();
@@ -273,7 +300,6 @@
     totalMoves++;
     moveStack.push({ x, y, color: currentPlayer });
 
-    // Highlight the last move
     highlightLastMove(x, y);
 
     // Check captures
@@ -292,7 +318,6 @@
           totalMoves++;
           moveStack.push({ x: cMove.x, y: cMove.y, color: currentPlayer });
 
-          // Highlight last move
           highlightLastMove(cMove.x, cMove.y);
 
           doCapturesAfterMove(cMove.x, cMove.y, currentPlayer);
@@ -303,18 +328,12 @@
     }
   }
 
-  // ADDED/CHANGED: function to highlight the last move with a circle marker
+  // Highlight the last move with a circle marker
   function highlightLastMove(x, y) {
-    // Remove old marker if exists
     if (lastMoveMarker) {
       board.removeObject(lastMoveMarker);
     }
-    // Create a new circle marker on the last move
-    lastMoveMarker = {
-      x: x,
-      y: y,
-      type: "CR" // built-in circle marker in WGo
-    };
+    lastMoveMarker = { x, y, type: "CR" };
     board.addObject(lastMoveMarker);
   }
 
@@ -340,7 +359,7 @@
       [x+1, y], [x-1, y], [x, y+1], [x, y-1]
     ];
 
-    // 1) Capture enemy group if zero liberties
+    // 1) Capture enemy groups if zero liberties
     for (let [nx, ny] of neighbors) {
       if (onBoard(nx, ny) && boardState[nx][ny] === enemyColor) {
         let groupInfo = getGroupAndLiberties(nx, ny, enemyColor);
@@ -354,12 +373,12 @@
       }
     }
 
-    // 2) Check suicide if no capture
+    // 2) Check for suicide if no capture happened
     if (!capturedAny) {
       let myGroup = getGroupAndLiberties(x, y, color);
       if (myGroup.liberties === 0) {
         let numSuicide = myGroup.points.length;
-        // The opponent gets these captures
+        // Opponent gets these captures
         if (color === 1) whiteCaptures += numSuicide;
         else blackCaptures += numSuicide;
         removeGroup(myGroup.points);
@@ -425,7 +444,6 @@
     let lastMove = moveStack.pop();
     removeStone(lastMove.x, lastMove.y);
 
-    // ADDED/CHANGED: remove last-move marker if we just removed that stone
     if (lastMoveMarker &&
         lastMoveMarker.x === lastMove.x &&
         lastMoveMarker.y === lastMove.y) {
@@ -435,8 +453,6 @@
 
     // Not restoring captured stones in this simple demo
     currentPlayer = lastMove.color;
-
-    // Decrement total moves
     if (totalMoves > 0) totalMoves--;
 
     document.getElementById("status-message").textContent = "Undid last move.";
@@ -502,6 +518,7 @@
         }
       }
 
+      // If region touches only Black, Black gets it; only White => White gets it
       if (touchesBlack && !touchesWhite) blackTerr += emptyPoints.length;
       else if (touchesWhite && !touchesBlack) whiteTerr += emptyPoints.length;
     }
@@ -550,10 +567,10 @@
     document.getElementById("blackScoreCell").textContent = blackScore.toFixed(1);
     document.getElementById("whiteScoreCell").textContent = whiteScore.toFixed(1);
 
-    // 5) Update total moves (now on last row)
+    // 5) Update total moves
     document.getElementById("totalMovesCell").textContent = totalMoves;
 
-    // 6) Update status: whose turn + who leads
+    // 6) Status: whose turn + who leads
     let nextPlayerText = currentPlayer === 1 ? "Black's move. " : "White's move. ";
     let diff = Math.abs(blackScore - whiteScore).toFixed(1);
     let leadMsg = "";
