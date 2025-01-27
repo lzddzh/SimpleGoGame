@@ -34,7 +34,7 @@ We use a simplified **Chinese-style** scoring approach:
 **No advanced rules:** No Ko ban, no seki detection, and **Undo** only removes the last placed stone (it doesn’t restore captured stones).
 
 ## Screenshot
-![Simple Go Game Screenshot](link_to_screenshot.png)  <!-- Replace with actual link -->
+![Simple Go Game Screenshot](game_screenshot.png)  <!-- Replace with actual link -->
 
 ## How to Run
 1. Download or clone this repository.
@@ -43,6 +43,8 @@ We use a simplified **Chinese-style** scoring approach:
 
 ## Credits
 This project was primarily developed using OpenAI's ChatGPT-o1, with additional debugging and prompt engineering by **Stark**, the author of this web game.
+
+This project uses WGo library for rendering the Go board. The library code is at https://github.com/waltheri/wgo.js. (which uses MIT License as well)
 
 ## License
 This project is licensed under the MIT License. See the LICENSE file for details.
