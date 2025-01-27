@@ -1,22 +1,49 @@
-# WGo.js #
+# Simple Go Game
 
-WGo.js is javascript library for purposes of go game. The basic idea of this library is to help to create go web application easily without laborious programming of game's logic or board graphic interface. It is descendant of WGoApi and we can say WGo.js is second version of this library. I decided to remove word 'Api' from the name and add suffix '.js' as is common for javascript libraries. But in texts I use shortly WGo. 
+## Overview
+This is a web-based implementation of the classic board game Go. The game allows players to compete against each other or against a basic computer opponent. It features customizable board sizes, score tracking, and support for simple rules including suicide and capturing.
 
-WGo is written in javascript with help of HTML5 and WGo applications should work fine in all new browsers, even on Androids and iPhones. 
-Unfortunately it won't work on Internet Explorer 8 and lower, because of absence of canvas element, which is crucial for drawing of a board.
+## Features
+- Play modes:
+  - Human vs. Human
+  - Human vs. Computer (random moves)
+- Customizable board sizes (19x19, 13x13, etc.)
+- Komi support for balancing the game
+- Move tracking and undo functionality
+- Automatic scoring using a simplified Chinese-style system
+- Board coordinates display for easy navigation
+- Last move highlighting with a circle marker
 
-WGo.js also comes with powerfull go player, or more precisely sgf game viewer, which can be embedded into websites. This player is designed to be unlimitedly extendable.
+## How to Play
+1. Choose your preferred board size and game mode.
+2. Set the Komi (handicap points for White).
+3. Click "Start New Game" to begin.
+4. For Human vs. Computer, select your color (Black or White).
+5. Place stones by clicking on the board.
+6. Track scores and captures in real-time.
+7. Click "Undo" to revert the last move if needed.
 
-WGo.js contains two main modules Board and Game.
+## Scoring System
+We use a simplified **Chinese-style** scoring approach:
 
-### Board ###
+- **Points = Territory + Stones on Board + Komi (for White)**
+- Territory is estimated by counting empty areas fully enclosed by one color.
+- Capturing removes an opponent’s stones from the board, reducing their final total.
+- Komi is set to **0 by default**, but you can change it to balance the game.
 
-Graphical go board implemented in HTML5 canvas. It has extensive API for easy manipulation. You can add and remove predefined objects like stones on board, you can create your own objects, or even make cut-outs of board.
+**No advanced rules:** No Ko ban, no seki detection, and **Undo** only removes the last placed stone (it doesn’t restore captured stones).
 
-### Game ###
+## Screenshot
+![Simple Go Game Screenshot](link_to_screenshot.png)  <!-- Replace with actual link -->
 
-Object for storing of game's position and controling game's flow. With method "play" you can play move and create new position with rules applied.
+## How to Run
+1. Download or clone this repository.
+2. Open `simple_go_game.html` in a web browser. (Only Chrome being tested)
+3. Enjoy playing Go!
 
-## WGo.js Player ##
+## Credits
+This project was primarily developed using OpenAI's ChatGPT-o1, with additional debugging and prompt engineering by **Stark**, the author of this web game.
 
-It is web viewer of Go games (SGF) built on top of the WGo.js library. You can easily put it into your website.
+## License
+This project is licensed under the MIT License. See the LICENSE file for details.
+

@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Simple Go Game</title>
+
+  <script type="text/javascript" src="wgo/wgo.min.js"></script>
+  <script type="text/javascript" src="wgo/wgo.player.min.js"></script>
+  <link rel="stylesheet" type="text/css" href="wgo/wgo.player.css" />
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    #board-container {
+      display: inline-block;
+      vertical-align: top;
+      margin-right: 20px;
+    }
+    #controls {
+      display: inline-block;
+      vertical-align: top;
+      max-width: 400px;
+    }
+    .row {
+      margin-bottom: 8px;
+    }
+    label {
+      display: inline-block;
+      width: 90px;
+    }
+    #score-section {
+      margin-top: 15px;
+      padding: 10px;
+      border: 1px solid #ccc;
+    }
+    #score-section table {
+      border-collapse: collapse;
+      width: 100%;
+      max-width: 300px;
+    }
+    #score-section th,
+    #score-section td {
+      border: 1px solid #999;
+      padding: 6px 10px;
+      text-align: center;
+    }
+    #status-message {
+      margin-top: 10px;
+      font-style: italic;
+    }
+    #explanation {
+      margin-top: 20px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      background-color: #f9f9f9;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Simple Go Game</h1>
+
+<div id="board-container">
+  <div id="go-board" style="width:500px; height:500px;"></div>
+</div>
+
+<div id="controls">
+  <!-- Board size -->
+  <div class="row">
+    <label for="boardSize">Board Size:</label>
+    <select id="boardSize">
+      <option value="19">19 x 19</option>
+      <option value="13">13 x 13</option>
+      <option value="10">10 x 10</option>
+      <option value="9">9 x 9</option>
+      <option value="6">6 x 6</option>
+      <option value="5">5 x 5</option>
+      <option value="4">4 x 4</option>
+      <option value="3">3 x 3</option>
+      <option value="2">2 x 2</option>
+      <option value="1">1 x 1</option>
+    </select>
+  </div>
+
+  <!-- Komi (0 by default) -->
+  <div class="row">
+    <label for="komiInput">Komi:</label>
+    <input type="number" id="komiInput" value="0" step="0.5" />
+  </div>
+
+  <!-- Game Mode -->
+  <div class="row">
+    <label>Game Mode:</label>
+    <select id="gameMode">
+      <option value="human-vs-computer">Human vs Computer</option>
+      <option value="human-vs-human">Human vs Human</option>
+    </select>
+  </div>
+
+  <!-- Which color for the human (only if HvC) -->
+  <div class="row" id="colorSelectRow">
+    <label>Play As:</label>
+    <select id="playerColor">
+      <option value="1">Black</option>
+      <option value="-1">White</option>
+    </select>
+  </div>
+
+  <!-- Buttons -->
+  <div class="row">
+    <button id="startBtn">Start New Game</button>
+    <button id="undoBtn" disabled>Undo</button>
+  </div>
+
+  <!-- Score table -->
+  <div id="score-section">
+    <h3>Board Statistics</h3>
+    <table>
+      <tr>
+        <th></th>
+        <th>Black</th>
+        <th>White</th>
+      </tr>
+      <tr>
+        <td>Stones on Board</td>
+        <td id="blackStonesCell">0</td>
+        <td id="whiteStonesCell">0</td>
+      </tr>
+      <tr>
+        <td>Captures</td>
+        <td id="blackCapturesCell">0</td>
+        <td id="whiteCapturesCell">0</td>
+      </tr>
+      <tr>
+        <td>Territory (Naive)</td>
+        <td id="blackTerrCell">0</td>
+        <td id="whiteTerrCell">0</td>
+      </tr>
+      <tr>
+        <td>Total Points</td>
+        <td id="blackScoreCell">0</td>
+        <td id="whiteScoreCell">0</td>
+      </tr>
+      <!-- ADDED/CHANGED: Moved "Total Moves" row to the bottom -->
+      <tr>
+        <td>Total Moves</td>
+        <td colspan="2" id="totalMovesCell">0</td>
+      </tr>
+    </table>
+  </div>
+
+  <div id="status-message">—</div>
+</div>
+
+<div id="explanation">
+  <h3>How Are Points Computed?</h3>
+  <p>
+    We use a simplified <strong>Chinese-style</strong> approach:
+    <em>Points = Territory + Stones on Board + Komi (for White)</em>. 
+    <br/><br/>
+    - Territory is estimated by a naive BFS that counts empty areas fully enclosed by one color.<br/>
+    - Capturing removes an opponent’s stones from the board, reducing their final total.<br/>
+    - Komi is set to <strong>0 by default</strong>, but you can change it above if you want to give White a handicap offset.
+  </p>
+  <p>
+    <em>No advanced rules:</em> no Ko ban, no seki detection, and <strong>Undo</strong> only removes the last placed stone (it doesn’t restore captured stones).
+  </p>
+</div>
+
+<script>
+  /************************************************************
+   * GLOBALS
+   ************************************************************/
+  let board;
+  let boardState = [];   // 2D array: 0=empty, 1=Black, -1=White
+  let moveStack = [];
+
+  let boardSize = 19;
+  let komi = 0;          // default 0
+  let blackCaptures = 0;
+  let whiteCaptures = 0;
+
+  let gameMode = "human-vs-computer";
+  let humanColor = 1;    // 1=Black, -1=White
+  let currentPlayer = 1; // 1=Black to move, -1=White
+
+  // Track total moves
+  let totalMoves = 0;
+
+  // ADDED/CHANGED: Keep a marker for the last move so we can remove it before drawing a new one
+  let lastMoveMarker = null;
+
+  /************************************************************
+   * INIT / START
+   ************************************************************/
+  function startGame() {
+    boardSize = parseInt(document.getElementById("boardSize").value);
+    komi = parseFloat(document.getElementById("komiInput").value);
+    gameMode = document.getElementById("gameMode").value;
+    humanColor = parseInt(document.getElementById("playerColor").value);
+
+    // Clear old board
+    const boardContainer = document.getElementById("go-board");
+    boardContainer.innerHTML = "";
+
+    // ADDED/CHANGED: Create a new WGo board with coordinates visible
+    board = new WGo.Board(boardContainer, {
+      width: 500,
+      height: 500,
+      size: boardSize,
+      coordinates: {
+        visible: true   // Show A,B,C... / 1,2,3... around edges
+      }
+    });
+
+    // Initialize data
+    initBoardState(boardSize);
+    moveStack = [];
+    blackCaptures = 0;
+    whiteCaptures = 0;
+    currentPlayer = 1; // black moves first
+    totalMoves = 0;
+    lastMoveMarker = null;
+
+    // If user is White in HvC, let computer (Black) move first
+    if (gameMode === "human-vs-computer" && humanColor === -1) {
+      setTimeout(() => {
+        const move = getRandomLegalMove();
+        if (move) {
+          placeStone(move.x, move.y, currentPlayer);
+          totalMoves++;
+          moveStack.push({ x: move.x, y: move.y, color: currentPlayer });
+
+          // Mark the last move
+          highlightLastMove(move.x, move.y);
+
+          switchPlayer();
+          updateScoreUI();
+        }
+      }, 400);
+    }
+
+    document.getElementById("undoBtn").disabled = false;
+    document.getElementById("status-message").textContent = "New game started.";
+
+    // Bind board click
+    board.addEventListener("click", handleBoardClick);
+
+    updateScoreUI();
+  }
+
+  function initBoardState(size) {
+    boardState = [];
+    for (let i = 0; i < size; i++) {
+      boardState[i] = [];
+      for (let j = 0; j < size; j++) {
+        boardState[i][j] = 0;
+      }
+    }
+  }
+
+  /************************************************************
+   * BOARD CLICK / CAPTURES
+   ************************************************************/
+  function handleBoardClick(x, y) {
+    if (gameMode === "human-vs-computer" && currentPlayer !== humanColor) return;
+    if (x < 0 || x >= boardSize || y < 0 || y >= boardSize) return;
+    if (boardState[x][y] !== 0) return; // Occupied
+
+    // Place stone
+    placeStone(x, y, currentPlayer);
+    totalMoves++;
+    moveStack.push({ x, y, color: currentPlayer });
+
+    // Highlight the last move
+    highlightLastMove(x, y);
+
+    // Check captures
+    doCapturesAfterMove(x, y, currentPlayer);
+
+    // Switch turn
+    switchPlayer();
+    updateScoreUI();
+
+    // If it's HvC and now it's the computer's turn
+    if (gameMode === "human-vs-computer" && currentPlayer !== humanColor) {
+      setTimeout(() => {
+        const cMove = getRandomLegalMove();
+        if (cMove) {
+          placeStone(cMove.x, cMove.y, currentPlayer);
+          totalMoves++;
+          moveStack.push({ x: cMove.x, y: cMove.y, color: currentPlayer });
+
+          // Highlight last move
+          highlightLastMove(cMove.x, cMove.y);
+
+          doCapturesAfterMove(cMove.x, cMove.y, currentPlayer);
+          switchPlayer();
+          updateScoreUI();
+        }
+      }, 500);
+    }
+  }
+
+  // ADDED/CHANGED: function to highlight the last move with a circle marker
+  function highlightLastMove(x, y) {
+    // Remove old marker if exists
+    if (lastMoveMarker) {
+      board.removeObject(lastMoveMarker);
+    }
+    // Create a new circle marker on the last move
+    lastMoveMarker = {
+      x: x,
+      y: y,
+      type: "CR" // built-in circle marker in WGo
+    };
+    board.addObject(lastMoveMarker);
+  }
+
+  function placeStone(x, y, color) {
+    board.addObject({
+      x: x,
+      y: y,
+      c: (color === 1 ? WGo.B : WGo.W)
+    });
+    boardState[x][y] = color;
+  }
+
+  function removeStone(x, y) {
+    board.removeObject({ x, y });
+    boardState[x][y] = 0;
+  }
+
+  function doCapturesAfterMove(x, y, color) {
+    let enemyColor = -color;
+    let capturedAny = false;
+
+    const neighbors = [
+      [x+1, y], [x-1, y], [x, y+1], [x, y-1]
+    ];
+
+    // 1) Capture enemy group if zero liberties
+    for (let [nx, ny] of neighbors) {
+      if (onBoard(nx, ny) && boardState[nx][ny] === enemyColor) {
+        let groupInfo = getGroupAndLiberties(nx, ny, enemyColor);
+        if (groupInfo.liberties === 0) {
+          removeGroup(groupInfo.points);
+          let numCaptured = groupInfo.points.length;
+          if (color === 1) blackCaptures += numCaptured;
+          else whiteCaptures += numCaptured;
+          capturedAny = true;
+        }
+      }
+    }
+
+    // 2) Check suicide if no capture
+    if (!capturedAny) {
+      let myGroup = getGroupAndLiberties(x, y, color);
+      if (myGroup.liberties === 0) {
+        let numSuicide = myGroup.points.length;
+        // The opponent gets these captures
+        if (color === 1) whiteCaptures += numSuicide;
+        else blackCaptures += numSuicide;
+        removeGroup(myGroup.points);
+      }
+    }
+  }
+
+  function getGroupAndLiberties(sx, sy, color) {
+    let visited = new Set();
+    let stack = [{ x: sx, y: sy }];
+    visited.add(`${sx},${sy}`);
+
+    let points = [];
+    let liberties = 0;
+
+    const directions = [
+      [1, 0], [-1, 0], [0, 1], [0, -1]
+    ];
+
+    while (stack.length) {
+      let { x, y } = stack.pop();
+      points.push({ x, y });
+
+      for (let [dx, dy] of directions) {
+        let nx = x + dx;
+        let ny = y + dy;
+        if (onBoard(nx, ny)) {
+          if (boardState[nx][ny] === 0) {
+            liberties++;
+          } else if (boardState[nx][ny] === color) {
+            let key = `${nx},${ny}`;
+            if (!visited.has(key)) {
+              visited.add(key);
+              stack.push({ x: nx, y: ny });
+            }
+          }
+        }
+      }
+    }
+    return { points, liberties };
+  }
+
+  function removeGroup(stones) {
+    for (let s of stones) {
+      removeStone(s.x, s.y);
+    }
+  }
+
+  function onBoard(x, y) {
+    return x >= 0 && x < boardSize && y >= 0 && y < boardSize;
+  }
+
+  /************************************************************
+   * SWITCH PLAYER / UNDO
+   ************************************************************/
+  function switchPlayer() {
+    currentPlayer = -currentPlayer;
+  }
+
+  function undoMove() {
+    if (!moveStack.length) return;
+
+    let lastMove = moveStack.pop();
+    removeStone(lastMove.x, lastMove.y);
+
+    // ADDED/CHANGED: remove last-move marker if we just removed that stone
+    if (lastMoveMarker &&
+        lastMoveMarker.x === lastMove.x &&
+        lastMoveMarker.y === lastMove.y) {
+      board.removeObject(lastMoveMarker);
+      lastMoveMarker = null;
+    }
+
+    // Not restoring captured stones in this simple demo
+    currentPlayer = lastMove.color;
+
+    // Decrement total moves
+    if (totalMoves > 0) totalMoves--;
+
+    document.getElementById("status-message").textContent = "Undid last move.";
+    updateScoreUI();
+  }
+
+  /************************************************************
+   * RANDOM COMPUTER
+   ************************************************************/
+  function getRandomLegalMove() {
+    let candidates = [];
+    for (let i = 0; i < boardSize; i++) {
+      for (let j = 0; j < boardSize; j++) {
+        if (boardState[i][j] === 0) {
+          candidates.push({ x: i, y: j });
+        }
+      }
+    }
+    if (!candidates.length) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  /************************************************************
+   * SCORING (NAIVE TERRITORY + CHINESE POINTS)
+   ************************************************************/
+  function computeTerritory() {
+    let visited = Array.from({ length: boardSize }, () =>
+      Array(boardSize).fill(false)
+    );
+    let blackTerr = 0;
+    let whiteTerr = 0;
+
+    const directions = [
+      [1, 0], [-1, 0], [0, 1], [0, -1]
+    ];
+
+    function bfs(sx, sy) {
+      let queue = [{ x: sx, y: sy }];
+      visited[sx][sy] = true;
+      let emptyPoints = [{ x: sx, y: sy }];
+      let touchesBlack = false;
+      let touchesWhite = false;
+
+      while (queue.length) {
+        let { x, y } = queue.pop();
+        for (let [dx, dy] of directions) {
+          let nx = x + dx;
+          let ny = y + dy;
+          if (onBoard(nx, ny) && !visited[nx][ny]) {
+            if (boardState[nx][ny] === 0) {
+              visited[nx][ny] = true;
+              queue.push({ x: nx, y: ny });
+              emptyPoints.push({ x: nx, y: ny });
+            } else if (boardState[nx][ny] === 1) {
+              touchesBlack = true;
+            } else if (boardState[nx][ny] === -1) {
+              touchesWhite = true;
+            }
+          } else if (onBoard(nx, ny)) {
+            if (boardState[nx][ny] === 1) touchesBlack = true;
+            if (boardState[nx][ny] === -1) touchesWhite = true;
+          }
+        }
+      }
+
+      if (touchesBlack && !touchesWhite) blackTerr += emptyPoints.length;
+      else if (touchesWhite && !touchesBlack) whiteTerr += emptyPoints.length;
+    }
+
+    // BFS on empty spaces
+    for (let i = 0; i < boardSize; i++) {
+      for (let j = 0; j < boardSize; j++) {
+        if (boardState[i][j] === 0 && !visited[i][j]) {
+          bfs(i, j);
+        }
+      }
+    }
+    return { blackTerr, whiteTerr };
+  }
+
+  function countStones() {
+    let blackStones = 0;
+    let whiteStones = 0;
+    for (let i = 0; i < boardSize; i++) {
+      for (let j = 0; j < boardSize; j++) {
+        if (boardState[i][j] === 1) blackStones++;
+        else if (boardState[i][j] === -1) whiteStones++;
+      }
+    }
+    return { blackStones, whiteStones };
+  }
+
+  function updateScoreUI() {
+    // 1) Stone counts
+    let { blackStones, whiteStones } = countStones();
+    document.getElementById("blackStonesCell").textContent = blackStones;
+    document.getElementById("whiteStonesCell").textContent = whiteStones;
+
+    // 2) Captures
+    document.getElementById("blackCapturesCell").textContent = blackCaptures;
+    document.getElementById("whiteCapturesCell").textContent = whiteCaptures;
+
+    // 3) Territory
+    let { blackTerr, whiteTerr } = computeTerritory();
+    document.getElementById("blackTerrCell").textContent = blackTerr;
+    document.getElementById("whiteTerrCell").textContent = whiteTerr;
+
+    // 4) Total points (Chinese style)
+    let blackScore = blackTerr + blackStones;
+    let whiteScore = whiteTerr + whiteStones + komi;
+    document.getElementById("blackScoreCell").textContent = blackScore.toFixed(1);
+    document.getElementById("whiteScoreCell").textContent = whiteScore.toFixed(1);
+
+    // 5) Update total moves (now on last row)
+    document.getElementById("totalMovesCell").textContent = totalMoves;
+
+    // 6) Update status: whose turn + who leads
+    let nextPlayerText = currentPlayer === 1 ? "Black's move. " : "White's move. ";
+    let diff = Math.abs(blackScore - whiteScore).toFixed(1);
+    let leadMsg = "";
+
+    if (Math.abs(blackScore - whiteScore) < 0.0001) {
+      leadMsg = "Score is even.";
+    } else if (blackScore > whiteScore) {
+      leadMsg = `Black leads by ${diff} points.`;
+    } else {
+      leadMsg = `White leads by ${diff} points.`;
+    }
+
+    document.getElementById("status-message").textContent = nextPlayerText + leadMsg;
+  }
+
+  /************************************************************
+   * DOM EVENTS
+   ************************************************************/
+  document.getElementById("startBtn").addEventListener("click", startGame);
+  document.getElementById("undoBtn").addEventListener("click", undoMove);
+
+  document.getElementById("gameMode").addEventListener("change", (e) => {
+    if (e.target.value === "human-vs-computer") {
+      document.getElementById("colorSelectRow").style.display = "block";
+    } else {
+      document.getElementById("colorSelectRow").style.display = "none";
+    }
+  });
+
+  // Start a default game on load
+  startGame();
+</script>
+
+</body>
+</html>
