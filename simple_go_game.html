@@ -157,15 +157,14 @@
 <div id="explanation">
   <h3>How Are Points Computed?</h3>
   <p>
-    We use a simplified <strong>Chinese-style</strong> approach:
-    <em>Points = Territory + Stones on Board + Komi (for White)</em>. 
-    <br/><br/>
-    - Territory is estimated by a naive BFS that counts empty areas fully enclosed by one color.<br/>
-    - Capturing removes an opponent’s stones from the board, reducing their final total.<br/>
-    - Komi is set to <strong>0 by default</strong>, but you can change it above if you want to give White a handicap offset.
-  </p>
-  <p>
-    <em>No advanced rules:</em> no Ko ban, no seki detection, and <strong>Undo</strong> only removes the last placed stone (it doesn’t restore captured stones).
+    <strong>Stones on Board:</strong> Each player gets one point for each of their stones remaining on the board.<br>
+    <strong>Territory:</strong> We count empty intersections that only touch one color as that color’s territory. If an empty area touches both colors, it belongs to no one.<br>
+    <strong>Captures:</strong> When stones are surrounded and removed (no liberties), the capturing player’s total increases because the opponent effectively loses those stones from the board.<br>
+    <strong>Komi:</strong> By tradition, White usually receives extra points to make up for Black playing first. Typical komi in Chinese rules is around <strong>7.5 points</strong>. However, we set this to <strong>0 by default</strong> for simplicity.<br>
+    <br>
+    <strong>Total Points:</strong><br>
+    We use a simplified Chinese-style approach: <em>Points = Territory + Stones on Board + Komi (for White only) </em>.<br><br>
+    <em>Note:</em> No advanced rules like Ko ban or seki detection are implemented here. The <strong>Undo</strong> button only removes the last stone placed (it does not restore captured stones).
   </p>
 </div>
 
