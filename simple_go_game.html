@@ -133,8 +133,8 @@
     <!-- Buttons -->
     <div class="row">
       <button id="startBtn">Start New Game</button>
-      <button id="undoBtn" disabled>Undo</button>
       <button id="passBtn" disabled>Pass</button>
+      <button id="undoBtn" disabled>Undo</button>
     </div>
 
     <!-- Score table -->
@@ -412,7 +412,7 @@
   }
 
   // For computer move, pick a random legal move or pass if none.
-  function computerPlay() {
+  function computerPlayRandom() {
     // Try all empty spots to see which are legal
     let candidates = [];
     for (let i = 0; i < boardSize; i++) {
@@ -438,6 +438,156 @@
     let move = candidates[Math.floor(Math.random() * candidates.length)];
     attemptMove(move.x, move.y, currentPlayer);
   }
+
+  function computerPlay() {
+    let bestMove = null;
+    let bestScore = -Infinity;
+
+    // Evaluate all possible moves
+    for (let i = 0; i < boardSize; i++) {
+      for (let j = 0; j < boardSize; j++) {
+        if (boardState[i][j] === 0) {
+          let moveScore = evaluateMoveWithDepth(i, j, currentPlayer, 2);
+
+          // Choose the move with the highest score
+          if (moveScore > bestScore) {
+            bestScore = moveScore;
+            bestMove = { x: i, y: j };
+          }
+        }
+      }
+    }
+
+    // If no legal moves are found, pass
+    if (!bestMove) {
+      passMove();
+      return;
+    }
+
+    // Play the best move
+    attemptMove(bestMove.x, bestMove.y, currentPlayer);
+  }
+
+  function evaluateMoveWithDepth(x, y, color, depth) {
+    // Check if the move is legal
+    let capturedStones = tryPlacingStone(x, y, color);
+    if (!capturedStones) return -Infinity; // Illegal move (suicide or Ko)
+
+    // Simulate placing the stone
+    boardState[x][y] = color;
+
+    // If the move results in captures, apply them temporarily
+    let simulatedCaptures = [];
+    if (capturedStones) {
+      for (let stone of capturedStones) {
+        boardState[stone.x][stone.y] = 0; // Remove the captured stone
+        simulatedCaptures.push(stone);
+      }
+    }
+
+    let score;
+    if (depth === 1) {
+      // Base case: Evaluate the board after this move
+      score = evaluateBoard(color);
+    } else {
+      // Recursive case: Simulate the opponent's best response
+      let opponentColor = -color;
+      let opponentBestScore = -Infinity;
+
+      for (let i = 0; i < boardSize; i++) {
+        for (let j = 0; j < boardSize; j++) {
+          if (boardState[i][j] === 0) {
+            let responseScore = evaluateMoveWithDepth(i, j, opponentColor, depth - 1);
+            if (responseScore > opponentBestScore) {
+              opponentBestScore = responseScore;
+            }
+          }
+        }
+      }
+
+      // The score for this move is the negative of the opponent's best score
+      score = -opponentBestScore;
+    }
+
+    // Undo the move
+    boardState[x][y] = 0;
+
+    // Restore the captured stones
+    for (let stone of simulatedCaptures) {
+      boardState[stone.x][stone.y] = -color;
+    }
+
+    return score;
+  }
+
+  function evaluateBoard(color) {
+    let score = 0;
+
+    // Count stones and captures
+    let { blackStones, whiteStones } = countStones();
+    score += (color === 1 ? blackStones - whiteStones : whiteStones - blackStones);
+
+    // Territory calculation
+    let { blackTerr, whiteTerr } = computeTerritory();
+    score += (color === 1 ? blackTerr - whiteTerr : whiteTerr - blackTerr);
+
+    // Include captures
+    score += (color === 1 ? blackCaptures - whiteCaptures : whiteCaptures - blackCaptures) * 10;
+
+    return score;
+  }
+
+  // function evaluateMove(x, y, color) {
+  //   // Check if the move is legal
+  //   let capturedStones = tryPlacingStone(x, y, color);
+  //   if (!capturedStones) return -Infinity; // Illegal move (suicide or Ko)
+
+  //   let score = 0;
+
+  //   // 1. Prioritize capturing stones
+  //   score += capturedStones.length * 10;
+
+  //   // 2. Defend vulnerable groups (groups with only 1 liberty)
+  //   const directions = [
+  //     [1, 0], [-1, 0], [0, 1], [0, -1]
+  //   ];
+  //   for (let [dx, dy] of directions) {
+  //     let nx = x + dx;
+  //     let ny = y + dy;
+  //     if (onBoard(nx, ny) && boardState[nx][ny] === color) {
+  //       let groupInfo = getGroupAndLiberties(nx, ny, color);
+  //       if (groupInfo.liberties === 1) {
+  //         score += 5; // Protect groups with 1 liberty
+  //       }
+  //     }
+  //   }
+
+  //   // 3. Reduce opponent territory
+  //   for (let [dx, dy] of directions) {
+  //     let nx = x + dx;
+  //     let ny = y + dy;
+  //     if (onBoard(nx, ny) && boardState[nx][ny] === -color) {
+  //       let groupInfo = getGroupAndLiberties(nx, ny, -color);
+  //       if (groupInfo.liberties === 1) {
+  //         score += 5; // Threaten opponent groups with 1 liberty
+  //       }
+  //     }
+  //   }
+
+  //   // 4. Expand territory
+  //   // Count empty adjacent spaces that only touch the current color
+  //   let emptyAdjacent = 0;
+  //   for (let [dx, dy] of directions) {
+  //     let nx = x + dx;
+  //     let ny = y + dy;
+  //     if (onBoard(nx, ny) && boardState[nx][ny] === 0) {
+  //       emptyAdjacent++;
+  //     }
+  //   }
+  //   score += emptyAdjacent;
+
+  //   return score;
+  // }
 
   // Try placing a stone at (x,y) for color, check if suicide
   // Return list of captured stones if the move is legal, or null if illegal.
