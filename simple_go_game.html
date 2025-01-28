@@ -440,8 +440,8 @@
   }
 
   function computerPlay() {
-    let bestMove = null;
-    let bestScore = -Infinity;
+    let bestMoves = [];
+    let highestScore = -Infinity;
 
     // Evaluate all possible moves
     for (let i = 0; i < boardSize; i++) {
@@ -449,23 +449,97 @@
         if (boardState[i][j] === 0) {
           let moveScore = evaluateMoveWithDepth(i, j, currentPlayer, 2);
 
-          // Choose the move with the highest score
-          if (moveScore > bestScore) {
-            bestScore = moveScore;
-            bestMove = { x: i, y: j };
+          if (moveScore > highestScore) {
+            // New highest score found, reset the list
+            highestScore = moveScore;
+            bestMoves = [{ x: i, y: j, score: moveScore }];
+          } else if (moveScore === highestScore) {
+            // Add equally good moves to the list
+            bestMoves.push({ x: i, y: j, score: moveScore });
           }
         }
       }
     }
 
-    // If no legal moves are found, pass
-    if (!bestMove) {
+    if (bestMoves.length === 0) {
+      // If no valid moves, pass
       passMove();
       return;
     }
 
-    // Play the best move
-    attemptMove(bestMove.x, bestMove.y, currentPlayer);
+    // Apply the near/far randomness
+    let chosenMove = chooseMoveWithNearFarStrategy(bestMoves);
+
+    // Play the chosen move
+    attemptMove(chosenMove.x, chosenMove.y, currentPlayer);
+  }
+
+
+  function chooseMoveWithNearFarStrategy(bestMoves) {
+    const isBorderMove = (move) =>
+      move.x === 0 || move.y === 0 || move.x === boardSize - 1 || move.y === boardSize - 1;
+
+    // Filter out border moves
+    let nonBorderMoves = bestMoves.filter((move) => !isBorderMove(move));
+
+    let randomChance = Math.random();
+    let opponentLastMove = findOpponentLastMove();
+
+    if (randomChance < 0.7 && opponentLastMove) {
+      // 80% chance: prioritize moves near the opponent's last move
+      let nearbyMoves = findMovesNear(opponentLastMove.x, opponentLastMove.y, 2);
+
+      // Filter the best moves to include only those near the opponent's last move
+      let nearBestMoves = (nonBorderMoves.length > 0 ? nonBorderMoves : bestMoves).filter((move) =>
+        nearbyMoves.some((nearby) => nearby.x === move.x && nearby.y === move.y)
+      );
+
+      // If there are valid nearby moves, randomly select one
+      if (nearBestMoves.length > 0) {
+        return nearBestMoves[Math.floor(Math.random() * nearBestMoves.length)];
+      }
+    }
+
+    // Fallback: Randomly select from non-border moves, or all moves if no non-border moves
+    let finalMoves = nonBorderMoves.length > 0 ? nonBorderMoves : bestMoves;
+    return finalMoves[Math.floor(Math.random() * finalMoves.length)];
+  }
+
+  function findOpponentLastMove() {
+    for (let i = moveStack.length - 1; i >= 0; i--) {
+      if (!moveStack[i].pass && moveStack[i].color !== currentPlayer) {
+        return { x: moveStack[i].x, y: moveStack[i].y };
+      }
+    }
+    return null; // No opponent move found
+  }
+
+  function findMovesNear(x, y, radius) {
+    let moves = [];
+    for (let i = x - radius; i <= x + radius; i++) {
+      for (let j = y - radius; j <= y + radius; j++) {
+        if (onBoard(i, j) && boardState[i][j] === 0) {
+          moves.push({ x: i, y: j });
+        }
+      }
+    }
+    return moves;
+  }
+
+  function findRandomValidMoves() {
+    let moves = [];
+    let edgeBuffer = 1; // Avoid the outermost edge
+    for (let i = edgeBuffer; i < boardSize - edgeBuffer; i++) {
+      for (let j = edgeBuffer; j < boardSize - edgeBuffer; j++) {
+        if (boardState[i][j] === 0) {
+          let score = evaluateMove(i, j, currentPlayer);
+          if (score !== -Infinity) {
+            moves.push({ x: i, y: j });
+          }
+        }
+      }
+    }
+    return moves;
   }
 
   function evaluateMoveWithDepth(x, y, color, depth) {
@@ -537,57 +611,57 @@
     return score;
   }
 
-  // function evaluateMove(x, y, color) {
-  //   // Check if the move is legal
-  //   let capturedStones = tryPlacingStone(x, y, color);
-  //   if (!capturedStones) return -Infinity; // Illegal move (suicide or Ko)
+  function evaluateMove(x, y, color) {
+    // Check if the move is legal
+    let capturedStones = tryPlacingStone(x, y, color);
+    if (!capturedStones) return -Infinity; // Illegal move (suicide or Ko)
 
-  //   let score = 0;
+    let score = 0;
 
-  //   // 1. Prioritize capturing stones
-  //   score += capturedStones.length * 10;
+    // 1. Prioritize capturing stones
+    score += capturedStones.length * 10;
 
-  //   // 2. Defend vulnerable groups (groups with only 1 liberty)
-  //   const directions = [
-  //     [1, 0], [-1, 0], [0, 1], [0, -1]
-  //   ];
-  //   for (let [dx, dy] of directions) {
-  //     let nx = x + dx;
-  //     let ny = y + dy;
-  //     if (onBoard(nx, ny) && boardState[nx][ny] === color) {
-  //       let groupInfo = getGroupAndLiberties(nx, ny, color);
-  //       if (groupInfo.liberties === 1) {
-  //         score += 5; // Protect groups with 1 liberty
-  //       }
-  //     }
-  //   }
+    // 2. Defend vulnerable groups (groups with only 1 liberty)
+    const directions = [
+      [1, 0], [-1, 0], [0, 1], [0, -1]
+    ];
+    for (let [dx, dy] of directions) {
+      let nx = x + dx;
+      let ny = y + dy;
+      if (onBoard(nx, ny) && boardState[nx][ny] === color) {
+        let groupInfo = getGroupAndLiberties(nx, ny, color);
+        if (groupInfo.liberties === 1) {
+          score += 5; // Protect groups with 1 liberty
+        }
+      }
+    }
 
-  //   // 3. Reduce opponent territory
-  //   for (let [dx, dy] of directions) {
-  //     let nx = x + dx;
-  //     let ny = y + dy;
-  //     if (onBoard(nx, ny) && boardState[nx][ny] === -color) {
-  //       let groupInfo = getGroupAndLiberties(nx, ny, -color);
-  //       if (groupInfo.liberties === 1) {
-  //         score += 5; // Threaten opponent groups with 1 liberty
-  //       }
-  //     }
-  //   }
+    // 3. Reduce opponent territory
+    for (let [dx, dy] of directions) {
+      let nx = x + dx;
+      let ny = y + dy;
+      if (onBoard(nx, ny) && boardState[nx][ny] === -color) {
+        let groupInfo = getGroupAndLiberties(nx, ny, -color);
+        if (groupInfo.liberties === 1) {
+          score += 5; // Threaten opponent groups with 1 liberty
+        }
+      }
+    }
 
-  //   // 4. Expand territory
-  //   // Count empty adjacent spaces that only touch the current color
-  //   let emptyAdjacent = 0;
-  //   for (let [dx, dy] of directions) {
-  //     let nx = x + dx;
-  //     let ny = y + dy;
-  //     if (onBoard(nx, ny) && boardState[nx][ny] === 0) {
-  //       emptyAdjacent++;
-  //     }
-  //   }
-  //   score += emptyAdjacent;
+    // 4. Expand territory
+    // Count empty adjacent spaces that only touch the current color
+    let emptyAdjacent = 0;
+    for (let [dx, dy] of directions) {
+      let nx = x + dx;
+      let ny = y + dy;
+      if (onBoard(nx, ny) && boardState[nx][ny] === 0) {
+        emptyAdjacent++;
+      }
+    }
+    score += emptyAdjacent;
 
-  //   return score;
-  // }
+    return score;
+  }
 
   // Try placing a stone at (x,y) for color, check if suicide
   // Return list of captured stones if the move is legal, or null if illegal.
