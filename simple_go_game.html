@@ -102,6 +102,7 @@
         <option value="4">4 x 4</option>
         <option value="3">3 x 3</option>
         <option value="2">2 x 2</option>
+        <option value="1">1 x 1</option>
       </select>
     </div>
 
@@ -133,6 +134,7 @@
     <div class="row">
       <button id="startBtn">Start New Game</button>
       <button id="undoBtn" disabled>Undo</button>
+      <button id="passBtn" disabled>Pass</button>
     </div>
 
     <!-- Score table -->
@@ -187,12 +189,14 @@
     <br>
     <strong>Komi:</strong> In formal Chinese Go, White often receives around 7.5 points to compensate for Black moving first. However, here the default is <strong>0</strong> (you can change it above).
     <br><br>
-    <strong>Overall Score:</strong> For each color,
-    <em>score = stones on board + territory + (komi for White only)</em>.
+    <strong>Total Points:</strong> For each color,
+    <em>Total Points = Stones on Board + Territory + (Komi for White only)</em>.
     <br><br>
-    <em>Note:</em> No advanced rules like Ko or seki detection are implemented here. The <strong>Undo</strong> button removes only the last stone placed (it does not restore captured stones).
+    <em>Note:</em> We have added a simple check for <strong>suicide</strong> and <strong>Ko</strong>. No advanced multi-step Ko rules are implemented. 
     <br><br>
-    Author: Stark Liu. <a href="https://github.com/lzddzh/SimpleGoGame">Source Code on Github</a> . 
+    If both sides pass in succession, the game ends and a winner is announced.
+    <br><br>
+    Author: Stark Liu. <a href="https://github.com/lzddzh/SimpleGoGame">Source Code on Github</a>.
   </p>
 </div>
 
@@ -202,7 +206,7 @@
    ************************************************************/
   let board;
   let boardState = [];   // 2D array: 0=empty, 1=Black, -1=White
-  let moveStack = [];
+  let moveStack = [];    // Stack of moves (with captured data)
 
   let boardSize = 19;
   let komi = 0;          // default 0
@@ -216,8 +220,18 @@
   // Track total moves
   let totalMoves = 0;
 
-  // Keep a marker for the last move so we can remove it before drawing a new one
+  // Keep a marker for the last move
   let lastMoveMarker = null;
+
+  // Ko tracking: if exactly one stone is captured, we store that location
+  // so the just-captured color cannot recapture immediately.
+  // Example: { x: 10, y: 10, forbiddenColor: -1 }
+  // Means color -1 (White) cannot place at (10,10) next turn.
+  let koPoint = null;
+
+  // Pass tracking: if the last move was a pass by the previous color,
+  // and the current color also passes, the game ends.
+  let lastMoveWasPass = false;
 
   /************************************************************
    * INIT / START
@@ -250,31 +264,24 @@
     currentPlayer = 1; // black moves first
     totalMoves = 0;
     lastMoveMarker = null;
+    koPoint = null;
+    lastMoveWasPass = false;
 
-    // If user is White in HvC, let computer (Black) move first
-    if (gameMode === "human-vs-computer" && humanColor === -1) {
-      setTimeout(() => {
-        const move = getRandomLegalMove();
-        if (move) {
-          placeStone(move.x, move.y, currentPlayer);
-          totalMoves++;
-          moveStack.push({ x: move.x, y: move.y, color: currentPlayer });
-
-          highlightLastMove(move.x, move.y);
-
-          switchPlayer();
-          updateScoreUI();
-        }
-      }, 400);
-    }
-
-    document.getElementById("undoBtn").disabled = false;
     document.getElementById("status-message").textContent = "New game started.";
+    document.getElementById("undoBtn").disabled = false;
+    document.getElementById("passBtn").disabled = false;
 
     // Bind board click
     board.addEventListener("click", handleBoardClick);
 
     updateScoreUI();
+
+    // If user is White in HvC, let computer (Black) move first
+    if (gameMode === "human-vs-computer" && humanColor === -1) {
+      setTimeout(() => {
+        computerPlay();
+      }, 400);
+    }
   }
 
   function initBoardState(size) {
@@ -288,44 +295,261 @@
   }
 
   /************************************************************
-   * BOARD CLICK / CAPTURES
+   * PASS LOGIC
    ************************************************************/
-  function handleBoardClick(x, y) {
-    if (gameMode === "human-vs-computer" && currentPlayer !== humanColor) return;
-    if (x < 0 || x >= boardSize || y < 0 || y >= boardSize) return;
-    if (boardState[x][y] !== 0) return; // Occupied
+  function passMove() {
+    // If the last move was also a pass => game ends
+    if (lastMoveWasPass) {
+      // Game ends, do final scoring
+      endGameByScoring();
+      return;
+    }
 
-    // Place stone
-    placeStone(x, y, currentPlayer);
-    totalMoves++;
-    moveStack.push({ x, y, color: currentPlayer });
+    // Mark that this turn was a pass
+    lastMoveWasPass = true;
 
-    highlightLastMove(x, y);
-
-    // Check captures
-    doCapturesAfterMove(x, y, currentPlayer);
+    // Record the move in the moveStack (no captures)
+    moveStack.push({ pass: true, color: currentPlayer });
 
     // Switch turn
     switchPlayer();
     updateScoreUI();
 
-    // If it's HvC and now it's the computer's turn
+    // If HvC and computer is the next to move
     if (gameMode === "human-vs-computer" && currentPlayer !== humanColor) {
       setTimeout(() => {
-        const cMove = getRandomLegalMove();
-        if (cMove) {
-          placeStone(cMove.x, cMove.y, currentPlayer);
-          totalMoves++;
-          moveStack.push({ x: cMove.x, y: cMove.y, color: currentPlayer });
+        computerPlay();
+      }, 400);
+    }
+  }
 
-          highlightLastMove(cMove.x, cMove.y);
+  function endGameByScoring() {
+    // final naive territory scoring
+    let { blackStones, whiteStones } = countStones();
+    let { blackTerr, whiteTerr } = computeTerritory();
 
-          doCapturesAfterMove(cMove.x, cMove.y, currentPlayer);
-          switchPlayer();
-          updateScoreUI();
-        }
+    let blackScore = blackStones + blackTerr;
+    let whiteScore = whiteStones + whiteTerr + komi;
+
+    let msg;
+    if (Math.abs(blackScore - whiteScore) < 0.0001) {
+      msg = "It's a tie!";
+    } else if (blackScore > whiteScore) {
+      msg = "Congrats!! Black wins.";
+    } else {
+      msg = "Congrats!! White wins.";
+    }
+    alert(msg);
+    document.getElementById("status-message").textContent = msg;
+    // Disable further moves
+    board.removeEventListener("click", handleBoardClick);
+    document.getElementById("undoBtn").disabled = true;
+    document.getElementById("passBtn").disabled = true;
+  }
+
+  /************************************************************
+   * BOARD CLICK / PLACE STONE
+   ************************************************************/
+  function handleBoardClick(x, y) {
+    if (gameMode === "human-vs-computer" && currentPlayer !== humanColor) return;
+    // Attempt to place stone if it's a legal move
+    attemptMove(x, y, currentPlayer);
+  }
+
+  // Attempt to place a stone at (x, y) for color
+  function attemptMove(x, y, color) {
+    if (x < 0 || x >= boardSize || y < 0 || y >= boardSize) return;
+    if (boardState[x][y] !== 0) return; // Occupied
+
+    // Ko check: if we have a stored koPoint, disallow if exactly the color
+    // that is forbidden tries to place there.
+    if (koPoint && koPoint.forbiddenColor === color && koPoint.x === x && koPoint.y === y) {
+      document.getElementById("status-message").textContent = "Illegal Move: Ko";
+      return;
+    }
+
+    // We do a "hypothetical" place to test for suicide or capturing
+    let capturedStones = tryPlacingStone(x, y, color);
+    if (!capturedStones) {
+      // Means not legal (suicide) => revert
+      document.getElementById("status-message").textContent = "Illegal Move: Suicide";
+      return;
+    }
+
+    // If we get here => the move is legal
+    // Clear lastMoveWasPass
+    lastMoveWasPass = false;
+
+    // Officially place stone on the board
+    placeStone(x, y, color);
+    totalMoves++;
+    
+    // Remove captures from the boardState / board UI
+    let actualCaptures = removeCapturedStones(capturedStones, color);
+
+    // Update Ko logic
+    updateKo(x, y, color, actualCaptures);
+
+    // Store this move (including captures) in moveStack for potential Undo
+    moveStack.push({
+      x, y, color,
+      captures: actualCaptures
+    });
+
+    // Highlight last move
+    highlightLastMove(x, y);
+
+    // Switch turn
+    switchPlayer();
+    updateScoreUI();
+
+    // If gameMode HvC and now it's computer's turn
+    if (gameMode === "human-vs-computer" && currentPlayer !== humanColor) {
+      setTimeout(() => {
+        computerPlay();
       }, 500);
     }
+  }
+
+  // For computer move, pick a random legal move or pass if none.
+  function computerPlay() {
+    // Try all empty spots to see which are legal
+    let candidates = [];
+    for (let i = 0; i < boardSize; i++) {
+      for (let j = 0; j < boardSize; j++) {
+        if (boardState[i][j] === 0) {
+          // We'll do a quick check
+          let testCaptures = tryPlacingStone(i, j, currentPlayer);
+          if (testCaptures !== null) {
+            // Move is legal
+            candidates.push({ x: i, y: j });
+          }
+        }
+      }
+    }
+
+    if (candidates.length === 0) {
+      // No legal moves => pass
+      passMove();
+      return;
+    }
+
+    // Random pick from the legal set
+    let move = candidates[Math.floor(Math.random() * candidates.length)];
+    attemptMove(move.x, move.y, currentPlayer);
+  }
+
+  // Try placing a stone at (x,y) for color, check if suicide
+  // Return list of captured stones if the move is legal, or null if illegal.
+  function tryPlacingStone(x, y, color) {
+    // Temporarily place
+    boardState[x][y] = color;
+
+    // Check immediate captures of opponent
+    let enemyColor = -color;
+    let capturedStones = [];
+    const neighbors = [
+      [x+1, y], [x-1, y], [x, y+1], [x, y-1]
+    ];
+
+    let anyCapture = false;
+    for (let [nx, ny] of neighbors) {
+      if (onBoard(nx, ny) && boardState[nx][ny] === enemyColor) {
+        let groupInfo = getGroupAndLiberties(nx, ny, enemyColor);
+        if (groupInfo.liberties === 0) {
+          // Those stones would be captured
+          anyCapture = true;
+          capturedStones = capturedStones.concat(groupInfo.points);
+        }
+      }
+    }
+
+    // If no enemy capture, check for suicide
+    if (!anyCapture) {
+      let myGroup = getGroupAndLiberties(x, y, color);
+      if (myGroup.liberties === 0) {
+        // Suicide => illegal
+        // revert boardState
+        boardState[x][y] = 0;
+        return null;
+      }
+    }
+
+    // If legal, revert the board to original, and return the would-be captures
+    boardState[x][y] = 0;
+    return capturedStones;
+  }
+
+  function updateKo(x, y, color, capturedStones) {
+    // Clear ko by default, then see if we set a new one
+    koPoint = null;
+
+    // Ko condition: exactly one stone captured, and the newly placed stone
+    // might have been exactly in that position. In standard go, the next color
+    // cannot immediately recapture. So if we captured exactly 1 stone,
+    // we store that stone's location as a "ko" for the color that lost it.
+    if (capturedStones.length === 1) {
+      // Suppose that single stone is (cx, cy)
+      // The color that cannot place there next turn is the color of the captured stone.
+      // Because if Black captures White's single stone, White cannot recapture immediately.
+      let c = capturedStones[0];
+      // The empty intersection is c.x, c.y, but now we placed our stone at (x,y).
+      // Usually in a "typical Ko" shape, you recapture exactly where the single stone was.
+      // But let's do the minimal approach: the location of the single stone is now empty
+      // only if that was the capturing place. If we captured a neighbor stone, the stone we
+      // placed is at (x,y). So the newly empty spot is c.x, c.y.
+      // But if we literally replaced c.x, c.y with our stone, that means we placed on top
+      // of the stone? Actually, in a typical Ko shape, you place next to the single stone,
+      // capturing it. The old stone's location becomes empty, and now the next player
+      // can't immediately fill that same spot.
+      // We'll store that as the Ko point.
+      koPoint = {
+        x: c.x,
+        y: c.y,
+        forbiddenColor: -color  // the color just captured must not recapture
+      };
+    }
+  }
+
+  // Officially place stone in board UI + boardState
+  function placeStone(x, y, color) {
+    board.addObject({
+      x: x,
+      y: y,
+      c: (color === 1 ? WGo.B : WGo.W)
+    });
+    boardState[x][y] = color;
+  }
+
+  // Remove actual captured stones from board. Returns the same array for reference.
+  function removeCapturedStones(stones, captorColor) {
+    // Deduplicate if needed
+    let unique = [];
+    let seen = new Set();
+    for (let s of stones) {
+      let key = `${s.x},${s.y}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(s);
+      }
+    }
+
+    for (let s of unique) {
+      // Remove from UI + state
+      removeStone(s.x, s.y);
+    }
+    // Update capture count
+    if (unique.length > 0) {
+      if (captorColor === 1) blackCaptures += unique.length;
+      else whiteCaptures += unique.length;
+    }
+    return unique;
+  }
+
+  // Actually remove from board
+  function removeStone(x, y) {
+    board.removeObject({ x, y });
+    boardState[x][y] = 0;
   }
 
   // Highlight the last move with a circle marker
@@ -337,55 +561,13 @@
     board.addObject(lastMoveMarker);
   }
 
-  function placeStone(x, y, color) {
-    board.addObject({
-      x: x,
-      y: y,
-      c: (color === 1 ? WGo.B : WGo.W)
-    });
-    boardState[x][y] = color;
+  function onBoard(x, y) {
+    return x >= 0 && x < boardSize && y >= 0 && y < boardSize;
   }
 
-  function removeStone(x, y) {
-    board.removeObject({ x, y });
-    boardState[x][y] = 0;
-  }
-
-  function doCapturesAfterMove(x, y, color) {
-    let enemyColor = -color;
-    let capturedAny = false;
-
-    const neighbors = [
-      [x+1, y], [x-1, y], [x, y+1], [x, y-1]
-    ];
-
-    // 1) Capture enemy groups if zero liberties
-    for (let [nx, ny] of neighbors) {
-      if (onBoard(nx, ny) && boardState[nx][ny] === enemyColor) {
-        let groupInfo = getGroupAndLiberties(nx, ny, enemyColor);
-        if (groupInfo.liberties === 0) {
-          removeGroup(groupInfo.points);
-          let numCaptured = groupInfo.points.length;
-          if (color === 1) blackCaptures += numCaptured;
-          else whiteCaptures += numCaptured;
-          capturedAny = true;
-        }
-      }
-    }
-
-    // 2) Check for suicide if no capture happened
-    if (!capturedAny) {
-      let myGroup = getGroupAndLiberties(x, y, color);
-      if (myGroup.liberties === 0) {
-        let numSuicide = myGroup.points.length;
-        // Opponent gets these captures
-        if (color === 1) whiteCaptures += numSuicide;
-        else blackCaptures += numSuicide;
-        removeGroup(myGroup.points);
-      }
-    }
-  }
-
+  /************************************************************
+   * GROUP + LIBERTY CALC
+   ************************************************************/
   function getGroupAndLiberties(sx, sy, color) {
     let visited = new Set();
     let stack = [{ x: sx, y: sy }];
@@ -421,58 +603,88 @@
     return { points, liberties };
   }
 
-  function removeGroup(stones) {
-    for (let s of stones) {
-      removeStone(s.x, s.y);
-    }
-  }
-
-  function onBoard(x, y) {
-    return x >= 0 && x < boardSize && y >= 0 && y < boardSize;
-  }
-
   /************************************************************
    * SWITCH PLAYER / UNDO
    ************************************************************/
   function switchPlayer() {
     currentPlayer = -currentPlayer;
+    // If a valid move occurs (not pass) that is different from Ko's forbidden color
+    // or the move is just pass, typically we clear the Ko if the next color made a move
+    // that isn't capturing that same stone. However, for simplicity, we fully clear Ko
+    // each time the opponent makes a valid move or passes, because Ko is a one-move restriction.
+    // We'll simply do:
+    // If the next color is the one that was forbidden and they *didn't* place there, Ko is lifted.
+    // We'll handle that in attemptMove or pass logic. But let's ensure we do so if they pass:
+    if (lastMoveWasPass) {
+      // passing definitely changes the board state so Ko can't remain. 
+      koPoint = null;
+    }
   }
 
   function undoMove() {
     if (!moveStack.length) return;
 
     let lastMove = moveStack.pop();
-    removeStone(lastMove.x, lastMove.y);
 
+    // If it was a pass, just revert pass state
+    if (lastMove.pass) {
+      currentPlayer = lastMove.color;
+      lastMoveWasPass = false; // Revert pass state
+      document.getElementById("status-message").textContent = "Undid last pass.";
+      updateScoreUI();
+      return;
+    }
+
+    // If it was a normal move
+    let { x, y, color, captures } = lastMove;
+
+    // Remove the stone that was placed
+    removeStone(x, y);
+
+    // Restore captured stones to the board and update `boardState`
+    if (captures && captures.length > 0) {
+      for (let c of captures) {
+        board.addObject({
+          x: c.x,
+          y: c.y,
+          c: color === 1 ? WGo.W : WGo.B 
+        });
+        console.log("c.color=", c.color)
+        console.log("color=", color)
+        boardState[c.x][c.y] = color === 1 ? -1 : 1;
+      }
+
+      // Adjust capture counts
+      if (color === 1) {
+        blackCaptures -= captures.length;
+      } else {
+        whiteCaptures -= captures.length;
+      }
+
+      // Ensure capture counts do not go negative
+      blackCaptures = Math.max(blackCaptures, 0);
+      whiteCaptures = Math.max(whiteCaptures, 0);
+    }
+
+    // If the last move marker is the undone stone, remove it
     if (lastMoveMarker &&
-        lastMoveMarker.x === lastMove.x &&
-        lastMoveMarker.y === lastMove.y) {
+        lastMoveMarker.x === x &&
+        lastMoveMarker.y === y) {
       board.removeObject(lastMoveMarker);
       lastMoveMarker = null;
     }
 
-    // Not restoring captured stones in this simple demo
-    currentPlayer = lastMove.color;
+    // Ko is lifted if we undo
+    koPoint = null;
+
+    // Restore boardState
+    boardState[x][y] = 0;
     if (totalMoves > 0) totalMoves--;
 
+    // The player to move is the undone color
+    currentPlayer = color;
     document.getElementById("status-message").textContent = "Undid last move.";
     updateScoreUI();
-  }
-
-  /************************************************************
-   * RANDOM COMPUTER
-   ************************************************************/
-  function getRandomLegalMove() {
-    let candidates = [];
-    for (let i = 0; i < boardSize; i++) {
-      for (let j = 0; j < boardSize; j++) {
-        if (boardState[i][j] === 0) {
-          candidates.push({ x: i, y: j });
-        }
-      }
-    }
-    if (!candidates.length) return null;
-    return candidates[Math.floor(Math.random() * candidates.length)];
   }
 
   /************************************************************
@@ -591,6 +803,7 @@
    ************************************************************/
   document.getElementById("startBtn").addEventListener("click", startGame);
   document.getElementById("undoBtn").addEventListener("click", undoMove);
+  document.getElementById("passBtn").addEventListener("click", passMove);
 
   document.getElementById("gameMode").addEventListener("change", (e) => {
     if (e.target.value === "human-vs-computer") {
